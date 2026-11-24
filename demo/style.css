@@ -45,9 +45,8 @@ h2, p { margin: 0; }
 #location { color: var(--green); }
 #day { color: var(--dim); }
 .viewport { position: relative; background: #0b1118; overflow: hidden; border-block: 1px solid #2d414a; }
-.viewport::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0 3px,#070b1210 3px 4px); z-index: 1; }
 canvas { display: block; width: 100%; image-rendering: pixelated; }
-#world { position: absolute; inset: 0; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#world { position: absolute; inset: 0; height: 100%; image-rendering: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .screen-alert, .prompt, .dialogue { z-index: 2; position: absolute; }
 .screen-alert, .prompt { pointer-events: none; }
 .screen-alert { top: 12px; left: 50%; transform: translateX(-50%); max-width: 94%; text-align: center; padding: 6px 10px; border: 1px solid #a77a4d; background: #241a15ee; color: var(--amber); font-size: 12px; }

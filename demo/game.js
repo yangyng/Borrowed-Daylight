@@ -9,7 +9,9 @@ const mini = mapCanvas.getContext("2d");
 const menu = $("menu");
 const storyDialog = $("story");
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-const backgrounds = MAPS.map((map, i) => art.terrain(map, i + 1));
+const scenes = MAPS.map((map, i) => art.terrain(map, i + 1));
+const drawQueue = [];
+const view = {width:canvas.width,height:canvas.height};
 const keys = new Set();
 const touchInput = {pointer: null, startX: 0, startY: 0, x: 0, y: 0, moved: false, sprint: false, timer: 0};
 const saveKey = "jiezhou-demo-v1";
@@ -74,10 +76,10 @@ function beep(freq, duration = .09, type = "triangle", volume = .055) {
   osc.start(start);osc.stop(start+duration);
 }
 function cameraTarget(focus = state, scale = 1) {
-  const width = canvas.width / scale, height = canvas.height / scale;
+  const width = view.width / scale, height = view.height / (scale * art.pitch);
   return {
     cameraX: clamp(focus.x * TILE - width / 2, 0, WIDTH * TILE - width),
-    cameraY: clamp(focus.y * TILE - height / 2, 0, HEIGHT * TILE - height)
+    cameraY: clamp(focus.y * TILE - height / 2, -art.skyMargin / art.pitch, HEIGHT * TILE + art.foregroundMargin / art.pitch - height)
   };
 }
 function newRuntime() {
@@ -753,21 +755,51 @@ function advance(dt){
   }
 }
 
-function drawLamps() {
+function sprite(draw,x,y,...args) {
+  drawQueue.push({draw,x,y,args});
+}
+function drawPerson(ctx,x,y,look,step,flip,alpha) {
+  ctx.globalAlpha=alpha;
+  art.person(ctx,x,y,look,step,flip);
+}
+function person(x,y,look,step,flip,alpha=1) {
+  art.shadow(ctx,x,y);
+  sprite(drawPerson,x,y,look,step,flip,alpha);
+}
+function drawScenery(ctx,x,y,prop) {
+  ctx.drawImage(prop.image,x,y-prop.lift);
+}
+function drawLamp(ctx,x,y,softness) {
+  const cone=ctx.createLinearGradient(x,y-22,x,y+5);
+  cone.addColorStop(0,"#ffe4ac65");
+  cone.addColorStop(1,"#ffe4ac00");
+  ctx.beginPath();
+  ctx.moveTo(x-3,y-22);ctx.lineTo(x+4,y-22);ctx.lineTo(x+16,y+5);ctx.lineTo(x-15,y+5);
+  ctx.closePath();ctx.fillStyle=cone;ctx.fill();
+  art.glow(ctx,x,y-19,softness,"#ffd99b");
+  art.box(ctx,x-3,y-7,7,9,"#293b41");
+  art.box(ctx,x-1,y-24,3,23,"#879187");
+  art.box(ctx,x+1,y-23,1,22,"#414f52");
+  art.box(ctx,x-5,y-25,10,4,"#4c605d");
+  art.box(ctx,x-4,y-22,8,3,"#ffd998");
+  art.box(ctx,x-2,y-22,5,2,"#fff3cb");
+}
+function drawLamps(time) {
   for(const [x,y,r] of lamps()) {
-    art.glow(ctx,x*TILE,y*TILE-4,r*TILE,"#c7ae62");
-    art.box(ctx,x*TILE-2,y*TILE-10,4,12,"#40575b");
-    art.box(ctx,x*TILE-4,y*TILE-10,8,3,"#edd69c");
-    art.box(ctx,x*TILE-1,y*TILE-8,3,2,"#e4c481");
+    const px=x*TILE,py=y*TILE;
+    art.glow(ctx,px,py,r*TILE,"#fbd38f");
+    art.glow(ctx,px,py-3,r*TILE*.42,"#f6c478");
+    art.shadow(ctx,px,py,5);
+    sprite(drawLamp,px,py,19+Math.sin(time*1.25+x)*1.5);
   }
 }
 function markInteraction(p, selected) {
   const x=p.x*TILE,y=p.y*TILE;
-  ctx.save();ctx.translate(Math.round(x),Math.round(y));
+  ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.scale(1,1/art.pitch);
   ctx.strokeStyle=selected?"#d6f9bf":"#7cca9a";ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(-6,1);ctx.lineTo(-6,5);ctx.lineTo(-2,5);ctx.moveTo(6,1);ctx.lineTo(6,5);ctx.lineTo(2,5);ctx.stroke();
   ctx.fillStyle=selected?"#e1f0bd":"#b0e1b1";
-  const shift=Math.floor(Math.sin(now*4.2)*2);
+  const shift=reducedMotion.matches?0:Math.floor(Math.sin(now*4.2)*2);
   ctx.beginPath();ctx.moveTo(-3,-28+shift);ctx.lineTo(3,-28+shift);ctx.lineTo(0,-23+shift);ctx.fill();
   ctx.restore();
 }
@@ -790,21 +822,25 @@ function drawProgress() {
   }
   if(state.ch===2&&state.flags.bridge){
     for(let x=51;x<64;x++)art.box(ctx,x*TILE,13*TILE,15,30,"#66706c");
-    let x=(52+now%8)*TILE;
-    art.box(ctx,x-10,14*TILE-8,22,14,"#85634b");art.box(ctx,x-7,14*TILE-6,9,8,"#a99969");
-    art.box(ctx,x+5,14*TILE-6,7,9,"#7c9468");
-    art.box(ctx,x-6,14*TILE+5,4,3,"#141d26");art.box(ctx,x+7,14*TILE+5,4,3,"#141d26");
+    const x=(52+(reducedMotion.matches?2:now%8))*TILE;
+    sprite(drawCart,x,14*TILE,true);
   }
 }
+function drawCart(ctx,x,y,trading=false) {
+  art.box(ctx,x-10,y-4,22,11,"#574839");art.box(ctx,x-10,y-6,22,4,"#a48660");
+  art.box(ctx,x-7,y+4,4,4,"#172734");art.box(ctx,x+7,y+4,4,4,"#172734");
+  art.box(ctx,x-6,y+5,2,2,"#687576");art.box(ctx,x+8,y+5,2,2,"#687576");
+  if(trading)art.crate(ctx,x,y-6,1);
+}
 function drawStationFixtures(points) {
-  const panel = ([tx,ty], light) => {
-    const x=tx*TILE,y=ty*TILE;
+  const panel = ([tx,ty], light) => sprite((ctx,x,y)=>{
     art.box(ctx,x-7,y-15,14,19,"#17242d");
-    art.box(ctx,x-6,y-14,12,14,"#566567");
+    art.box(ctx,x-6,y-14,12,14,"#607779");
+    art.box(ctx,x+3,y-13,3,13,"#354d56");
     art.box(ctx,x-4,y-11,8,6,"#15252a");
     art.box(ctx,x-3,y-10,6,3,light);
     art.box(ctx,x-4,y-2,4,2,"#b8a978");
-  };
+  },tx*TILE,ty*TILE);
   panel(points.wardMeter,state.phase==="hospital"||state.phase==="ward"?"#ebbd77":"#9ac492");
   panel(points.fork,"#bc9971");
   panel(points.northMarker,"#edce8e");
@@ -819,23 +855,23 @@ function drawTargets(){
   const p=currentMap().points;
   if(state.ch===1){
     drawStationFixtures(p);
-    art.person(ctx,p.hospital[0]*TILE,p.hospital[1]*TILE,art.looks.sister,0,-1);
+    person(p.hospital[0]*TILE,p.hospital[1]*TILE,art.looks.sister,0,-1);
     if(state.phase==="scout"||story?.id==="residents")
-      art.person(ctx,p.scout[0]*TILE,p.scout[1]*TILE,art.looks.engineer,0,-1);
+      person(p.scout[0]*TILE,p.scout[1]*TILE,art.looks.engineer,0,-1);
     if(story?.effect==="carrySeedling"){
       const elapsed=now-story.started;
       const step=reducedMotion.matches?1:clamp(elapsed/1.65,0,1);
       const x=(p.acheng[0]+(p.seedlings[0]-p.acheng[0])*step)*TILE;
       const y=(p.acheng[1]+(p.seedlings[1]-p.acheng[1])*step)*TILE;
-      art.person(ctx,x,y,art.looks.child,step<1?Math.floor(elapsed*9)%3-1:0,-1);
-      art.crate(ctx,x-7,y-2,1,.6);
-    } else art.person(ctx,p.acheng[0]*TILE,p.acheng[1]*TILE,art.looks.child,0,-1);
-    for(let i=0;i<3;i++)art.crate(ctx,(60.55+i*.68)*TILE,19.3*TILE,1,.8);
+      person(x,y,art.looks.child,step<1?Math.floor(elapsed*9)%3-1:0,-1);
+      sprite(art.crate,x-7,y+1,1,.6);
+    } else person(p.acheng[0]*TILE,p.acheng[1]*TILE,art.looks.child,0,-1);
+    for(let i=0;i<3;i++)sprite(art.crate,(60.55+i*.68)*TILE,19.3*TILE,1,.8);
     if(state.phase==="complete"&&state.allocation==="borrow")art.glow(ctx,61.8*TILE,19.2*TILE,39,"#bef78e");
     if(state.phase==="power"){art.glow(ctx,48.5*TILE,10.1*TILE,22,"#b6c781");art.glow(ctx,59.4*TILE,9*TILE,22,"#c8a36a");}
   } else {
-    art.person(ctx,p.yehe[0]*TILE,p.yehe[1]*TILE,art.looks.grower,0,-1);
-    if(state.allocation==="borrow")art.person(ctx,14.45*TILE,13.15*TILE,art.looks.child,0,-1);
+    person(p.yehe[0]*TILE,p.yehe[1]*TILE,art.looks.grower,0,-1);
+    if(state.allocation==="borrow")person(14.45*TILE,13.15*TILE,art.looks.child,0,-1);
     if(state.allocation==="mirror"&&state.flags.mirror)art.glow(ctx,14*TILE,16.3*TILE,56,"#e4d49a");
     if(state.phase==="complete"){
       const soil=point("farm");
@@ -852,26 +888,40 @@ function drawTargets(){
       const {x,y}=point(name); const device=state.towers[name];
       ctx.strokeStyle=device?"#90b293":"#64847d";ctx.strokeRect(x*TILE-8,y*TILE-8,16,16);
       if(device){
-        art.box(ctx,x*TILE-5,y*TILE-9,10,14,"#537676");
-        art.box(ctx,x*TILE-3,y*TILE-9,6,5,device.kind==="gun"?"#d0b979":device.kind==="slow"?"#a0bdc8":"#e2ce91");
-        art.box(ctx,x*TILE-4,y*TILE+3,8,3,"#242e3c");
+        sprite((ctx,x,y)=>{
+          art.box(ctx,x-5,y-14,10,19,"#537676");
+          art.box(ctx,x-3,y-14,6,5,device.kind==="gun"?"#d0b979":device.kind==="slow"?"#a0bdc8":"#e2ce91");
+          art.box(ctx,x-4,y+3,8,3,"#242e3c");
+        },x*TILE,y*TILE);
       }
     }
-    if(state.racked.length&&state.phase!=="complete")for(let i=0;i<state.racked.length-state.final.length;i++)art.crate(ctx,(47+i*.65)*TILE,15.5*TILE,1,.85);
+    if(state.racked.length&&state.phase!=="complete")for(let i=0;i<state.racked.length-state.final.length;i++)sprite(art.crate,(47+i*.65)*TILE,15.5*TILE,1,.85);
   }
-  if(available().length&&state.phase==="transport"&&state.ch===2){const p=point("stock");art.crate(ctx,p.x*TILE,p.y*TILE-5,1);}
-  if(state.drop)art.crate(ctx,state.drop.x*TILE,state.drop.y*TILE, state.ch===2?1:0);
+  if(available().length&&state.phase==="transport"&&state.ch===2){const p=point("stock");sprite(art.crate,p.x*TILE,p.y*TILE-5,1);}
+  if(state.drop){art.shadow(ctx,state.drop.x*TILE,state.drop.y*TILE,7);sprite(art.crate,state.drop.x*TILE,state.drop.y*TILE,state.ch===2?1:0);}
   if(state.held.length){
     const px=state.x*TILE-runtime.flip*(state.carry==="cart"?13:5);
     const py=state.y*TILE+(state.carry==="cart"?5:1);
-    if(state.carry==="cart"){
-      art.box(ctx,px-10,py-1,20,8,"#6a5948");art.box(ctx,px-8,py+5,4,3,"#202d31");art.box(ctx,px+5,py+5,4,3,"#202d31");
-    }
-    art.crate(ctx,px,py-2,state.ch===2?1:0,state.carry==="cart"?1:.75);
-    if(state.held.length>1)art.crate(ctx,px-7,py-7,1,.63);
+    sprite((ctx,x,y)=>{
+      if(state.carry==="cart")drawCart(ctx,x,y);
+      art.crate(ctx,x,y-4,state.ch===2?1:0,state.carry==="cart"?1:.75);
+      if(state.held.length>1)art.crate(ctx,x-7,y-7,1,.63);
+    },px,py);
+  }
+}
+function drawMachine(ctx,x,y,e,time,exposed) {
+  if(exposed)art.glow(ctx,x,y-14,26,"#bddb92");
+  art.robot(ctx,x,y,e,time);
+  if(e.max){
+    art.box(ctx,x-25,y-43,50,4,"#17232b");
+    art.box(ctx,x-25,y-43,50*e.hp/e.max,4,exposed?"#a4e6a3":"#e98b69");
+  } else if(e.ready>.2){
+    art.box(ctx,x-7,y-19,14,2,"#202631");
+    art.box(ctx,x-7,y-19,Math.min(14,e.ready*12),2,"#e9a168");
   }
 }
 function drawHostiles(){
+  const time=reducedMotion.matches?0:now;
   if(runtime.boss){
     const cycle=runtime.bossTime%7;
     if(cycle>2.2&&cycle<4.4){
@@ -881,23 +931,21 @@ function drawHostiles(){
       for(let x=left;x<left+160;x+=12)art.pathLine(ctx,x,y-11,x+8,y+11,"#df8d62a8");
       art.pathLine(ctx,left,y-12,left+160,y-12,"#e7956c");art.pathLine(ctx,left,y+12,left+160,y+12,"#e7956c");
     }
-    art.robot(ctx,runtime.boss,now);
-    const {x,y,hp,max}=runtime.boss;
-    art.box(ctx,x*TILE-25,y*TILE-47,50,4,"#17232b");art.box(ctx,x*TILE-25,y*TILE-47,50*hp/max,4,bossExposed()?"#a4e6a3":"#e98b69");
-    if(bossExposed())art.glow(ctx,x*TILE,y*TILE-12,23,"#bddb92");
+    const {x,y}=runtime.boss;
+    art.shadow(ctx,x*TILE,y*TILE,22);
+    sprite(drawMachine,x*TILE,y*TILE,runtime.boss,time,bossExposed());
   }
   for(const e of runtime.enemies){
-    if(e.ready>.2){
-      const x=e.x*TILE,y=e.y*TILE;
-      art.box(ctx,x-7,y-19,14,2,"#202631");
-      art.box(ctx,x-7,y-19,Math.min(14,e.ready*12),2,"#e9a168");
-    }
-    art.robot(ctx,e,now);
+    art.shadow(ctx,e.x*TILE,e.y*TILE);
+    sprite(drawMachine,e.x*TILE,e.y*TILE,e,time,false);
   }
+}
+function drawBolts(){
   for(const bolt of runtime.effects) {
     ctx.globalAlpha=bolt.left/.18;
-    art.pathLine(ctx,bolt.from.x*TILE,bolt.from.y*TILE-7,bolt.to.x*TILE,bolt.to.y*TILE-5,bolt.tint,2);
-    art.box(ctx,bolt.to.x*TILE-2,bolt.to.y*TILE-7,3,3,"#efe7ac");
+    art.pathLine(ctx,bolt.from.x*TILE,bolt.from.y*TILE-8/art.pitch,bolt.to.x*TILE,bolt.to.y*TILE-7/art.pitch,bolt.tint,2);
+    art.glow(ctx,bolt.to.x*TILE,bolt.to.y*TILE-7/art.pitch,12,"#f8d178");
+    art.box(ctx,bolt.to.x*TILE-2,bolt.to.y*TILE-8/art.pitch,3,3,"#efe7ac");
     ctx.globalAlpha=1;
   }
 }
@@ -932,40 +980,87 @@ function drawStoryLighting(elapsed) {
   }
   art.glow(ctx,x,y,glow,"#dbde9e");
 }
+function drawAtmosphere(time) {
+  const fog=ctx.createLinearGradient(0,0,0,canvas.height);
+  fog.addColorStop(0,state.ch===1?"#52778958":"#95adb049");
+  fog.addColorStop(.33,"#537e8906");
+  fog.addColorStop(.66,"#52718800");
+  fog.addColorStop(1,"#10253477");
+  ctx.fillStyle=fog;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  const centerX=canvas.width/2,centerY=canvas.height/2;
+  const vignette=ctx.createRadialGradient(centerX,centerY,Math.min(centerX,centerY)*.65,centerX,centerY,Math.hypot(centerX,centerY));
+  vignette.addColorStop(0,"#0b131900");
+  vignette.addColorStop(1,"#060d1b84");
+  ctx.fillStyle=vignette;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  // A small breathing glow high in the frame gives the haze a direction.
+  ctx.globalAlpha=.24+Math.sin(time*.43)*.035;
+  art.glow(ctx,canvas.width*.31,canvas.height*.12,Math.min(canvas.width,canvas.height)*.66,state.ch===1?"#7eaaa7":"#d4b897");
+  ctx.globalAlpha=1;
+}
+function drawDust(time) {
+  for(const [x,y] of lamps())for(let i=0;i<5;i++){
+    const px=x*TILE+Math.sin(i*3.9+x+time*.34)*34;
+    const py=y*TILE-13+(i*2.1+time*.22)%19;
+    ctx.globalAlpha=.2+(Math.sin(i*6+time*.9)+1)*.16;
+    art.box(ctx,px,py,i%2===0?1.25:1,1.4,"#fff1bd");
+  }
+  ctx.globalAlpha=1;
+}
 function render(dt) {
+  const motionTime=reducedMotion.matches?0:now;
   const elapsed=story?now-story.started:0;
   const scale=story&&!reducedMotion.matches?1.08+.18*clamp(elapsed/.9,0,1):1;
   const target=cameraTarget(story?.focus,scale);
   const follow=story&&reducedMotion.matches?1:Math.min(1,dt*(story?3.5:8));
   runtime.cameraX+=(target.cameraX-runtime.cameraX)*follow;
   runtime.cameraY+=(target.cameraY-runtime.cameraY)*follow;
-  runtime.cameraX=Math.min(runtime.cameraX,WIDTH*TILE-canvas.width/scale);
-  runtime.cameraY=Math.min(runtime.cameraY,HEIGHT*TILE-canvas.height/scale);
-  const cx=Math.round(runtime.cameraX),cy=Math.round(runtime.cameraY);
+  const visibleWidth=view.width/scale,visibleHeight=view.height/(scale*art.pitch);
+  runtime.cameraX=Math.min(runtime.cameraX,WIDTH*TILE-visibleWidth);
+  runtime.cameraY=Math.min(runtime.cameraY,HEIGHT*TILE+art.foregroundMargin/art.pitch-visibleHeight);
+  const cx=runtime.cameraX,cy=runtime.cameraY;
+  const scaleX=canvas.width/visibleWidth,scaleY=canvas.height/visibleHeight;
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(backgrounds[state.ch-1],cx,cy,canvas.width/scale,canvas.height/scale,0,0,canvas.width,canvas.height);
-  ctx.save();ctx.scale(scale,scale);ctx.translate(-cx,-cy);
-  drawProgress();drawLamps();drawGate();drawTargets();drawHostiles();
-  if((state.flags.engineer||state.flags.tempEngineer)&&story?.id!=="residents")art.person(ctx,runtime.npcX*TILE,runtime.npcY*TILE,art.looks.engineer,runtime.walking?Math.floor(now*7)%2:0,runtime.flip);
+  ctx.fillStyle="#10202b";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(scaleX,0,0,scaleY,-cx*scaleX,-cy*scaleY);
+  const scene=scenes[state.ch-1];
+  art.drawFloor(ctx,scene,motionTime);
+  drawQueue.length=0;
+  for(const prop of scene.scenery){
+    if(prop.x+prop.image.width<cx||prop.x>cx+visibleWidth||prop.y+9<cy||prop.y-prop.lift/art.pitch>cy+visibleHeight)continue;
+    sprite(drawScenery,prop.x,prop.y,prop);
+  }
+  drawProgress();drawLamps(motionTime);drawGate();drawTargets();drawHostiles();
+  if((state.flags.engineer||state.flags.tempEngineer)&&story?.id!=="residents")
+    person(runtime.npcX*TILE,runtime.npcY*TILE,art.looks.engineer,runtime.walking?Math.floor(now*7)%2:0,runtime.flip);
+  art.glow(ctx,state.x*TILE,state.y*TILE,37,"#f5d69a");
+  const playerAlpha=runtime.invuln>0&&!reducedMotion.matches&&Math.floor(now*10)%2===0?.57:1;
+  person(state.x*TILE,state.y*TILE,art.looks.player,runtime.walking?Math.floor(now*10)%3-1:0,runtime.flip,playerAlpha);
+  drawQueue.sort((a,b)=>a.y-b.y);
+  for(const {draw,x,y,args} of drawQueue){
+    ctx.save();ctx.translate(x,y);ctx.scale(1,1/art.pitch);
+    draw(ctx,0,0,...args);
+    ctx.restore();
+  }
+  drawBolts();
+  drawDust(motionTime);
   if(story)drawStoryLighting(elapsed);
-  art.glow(ctx,state.x*TILE,state.y*TILE,35,"#b7bb83");
-  ctx.globalAlpha=runtime.invuln>0&&Math.floor(now*10)%2===0?.53:1;
-  art.person(ctx,state.x*TILE,state.y*TILE,art.looks.player,runtime.walking?Math.floor(now*10)%3-1:0,runtime.flip);
-  ctx.globalAlpha=1;
   const active=story?null:nearest();
   if(!story)for(const p of interactables())if(distance(p,state)<15)markInteraction(p,active?.label===p.label&&active?.x===p.x&&active?.y===p.y);
-  ctx.font='bold 9px ui-monospace, "PingFang SC", monospace';
-  ctx.textAlign="center";
   for(const [x,y,name] of currentMap().labels) {
-    const xx=x*TILE,yy=y*TILE;
+    ctx.save();ctx.translate(x*TILE,y*TILE);ctx.scale(1,1/art.pitch);
+    ctx.font='600 9px ui-monospace, "PingFang SC", monospace';
+    ctx.textAlign="center";
     const width=ctx.measureText(name).width;
-    art.box(ctx,xx-width/2-4,yy-8,width+8,12,"#182733ee");ctx.fillStyle="#d2ddd2";ctx.fillText(name,xx,yy+1);
+    art.box(ctx,-width/2-5,-9,width+10,12,"#152733dc");
+    art.box(ctx,-width/2-5,2,width+10,1,"#87a69799");
+    ctx.fillStyle="#d9e2d5";ctx.fillText(name,0,0);
+    ctx.restore();
   }
-  ctx.restore();
-  const centerX=canvas.width/2,centerY=canvas.height/2;
-  const vignette=ctx.createRadialGradient(centerX,centerY,Math.min(centerX,centerY)*.78,centerX,centerY,Math.hypot(centerX,centerY));
-  vignette.addColorStop(0,"#0b131900");vignette.addColorStop(1,"#06091180");
-  ctx.fillStyle=vignette;ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(1,0,0,1,0,0);
+  drawAtmosphere(motionTime);
   const prompt=$("prompt");
   const label=active?.label||(state.held.length?"停放货物":"");
   if(prompt.lastElementChild.textContent!==label)prompt.lastElementChild.textContent=label;
@@ -1069,18 +1164,21 @@ function releaseCanvasTouch(){
 function clearControls(){keys.clear();releaseCanvasTouch();}
 function canvasTap(event){
   const bounds=canvas.getBoundingClientRect();
-  const px=(event.clientX-bounds.left)*canvas.width/bounds.width;
-  const py=(event.clientY-bounds.top)*canvas.height/bounds.height;
-  if(px<0||px>=canvas.width||py<0||py>=canvas.height)return;
-  const tap={x:(px+Math.round(runtime.cameraX))/TILE,y:(py+Math.round(runtime.cameraY))/TILE};
-  const targets=interactables().filter(item=>Math.abs(item.x-tap.x)<.95&&tap.y>=item.y-1.85&&tap.y<=item.y+.6);
+  const px=(event.clientX-bounds.left)*view.width/bounds.width;
+  const py=(event.clientY-bounds.top)*view.height/bounds.height;
+  if(px<0||px>=view.width||py<0||py>=view.height)return;
+  const tap={x:(px+runtime.cameraX)/TILE,y:(py/art.pitch+runtime.cameraY)/TILE};
+  const targets=interactables().filter(item=>{
+    const height=(tap.y-item.y)*art.pitch;
+    return Math.abs(item.x-tap.x)<.95&&height>=-2&&height<=.55;
+  });
   const target=targets.sort((a,b)=>distance(a,state)-distance(b,state))[0];
   if(target){
     if(distance(target,state)<1.58)use(target);
     else say("提示","走近后点按目标。",2);
     return;
   }
-  if(state.held.length&&distance(tap,{x:state.x,y:state.y-.5})<1)use(null);
+  if(state.held.length&&Math.hypot(tap.x-state.x,(tap.y-state.y)*art.pitch+.5)<1)use(null);
 }
 canvas.addEventListener("pointerdown",event=>{
   if(event.pointerType==="mouse"||menu.open||story||touchInput.pointer!==null||event.button!==0)return;
@@ -1105,8 +1203,10 @@ canvas.addEventListener("pointermove",event=>{
     clearTimeout(touchInput.timer);
   }
   const pull=clamp((length-deadZone)/22,0,1);
-  touchInput.x=length===0?0:x/length*pull;
-  touchInput.y=length===0?0:y/length*pull;
+  const worldY=y/art.pitch;
+  const direction=Math.hypot(x,worldY)||1;
+  touchInput.x=x/direction*pull;
+  touchInput.y=worldY/direction*pull;
   touchInput.sprint=length>=52;
 });
 canvas.addEventListener("pointerup",event=>{
@@ -1125,13 +1225,13 @@ showOpening();
 const worldSize = new ResizeObserver(([entry]) => {
   const {width, height} = entry.contentRect;
   if (!width || !height) return;
-  // Keep sprite sizes readable and the camera crop inside the terrain bitmap.
-  const scale = Math.max(1.5, width / 640, height / 416);
-  const viewWidth = Math.max(1, Math.round(width / scale));
-  const viewHeight = Math.max(1, Math.round(height / scale));
-  if (viewWidth === canvas.width && viewHeight === canvas.height) return;
-  canvas.width = viewWidth;
-  canvas.height = viewHeight;
+  // Render lighting at display resolution while keeping the logical camera size stable.
+  const zoom = Math.max(1.65,width/680,height/380);
+  const density = Math.min(devicePixelRatio,1.75,1920/Math.max(width,height));
+  view.width=width/zoom;
+  view.height=height/zoom;
+  canvas.width=Math.max(1,Math.round(width*density));
+  canvas.height=Math.max(1,Math.round(height*density));
   ctx.imageSmoothingEnabled = false;
   releaseCanvasTouch();
   Object.assign(runtime, cameraTarget());
