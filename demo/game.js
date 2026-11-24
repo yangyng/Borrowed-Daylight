@@ -69,14 +69,19 @@ function beep(freq, duration = .09, type = "triangle", volume = .055) {
   osc.connect(gain);gain.connect(soundContext.destination);
   osc.start(start);osc.stop(start+duration);
 }
+function cameraTarget() {
+  return {
+    cameraX: clamp(state.x * TILE - canvas.width / 2, 0, WIDTH * TILE - canvas.width),
+    cameraY: clamp(state.y * TILE - canvas.height / 2, 0, HEIGHT * TILE - canvas.height)
+  };
+}
 function newRuntime() {
   runtime = {
     enemies: [], spawn: 0, marks: {}, boss: null, bossTime: 0, bossSpawn: 0,
     effects: [], elapsed: 0, cooldown: 0, invuln: 0, lastSprint: -10, xp: 0, upgrade: "",
     wave: 0, waveGap: 0, cabinet: 70, disabled: 0, towerShots: {}, countdown: 0,
     walking: false, flip: 1, npcX: state.x - .8, npcY: state.y + .5, guard: null,
-    cameraX: clamp(state.x * TILE - 240,0,WIDTH*TILE-480),
-    cameraY: clamp(state.y * TILE - 144,0,HEIGHT*TILE-288)
+    ...cameraTarget()
   };
   if (state.phase === "stationBoss") setupBoss("station");
   if (state.phase === "bridgeBoss") setupBoss("bridge");
@@ -139,9 +144,9 @@ const returnChoice = {title:"返回现场"};
 function choosePower() {
   if(state.phase === "complete") {
     if(state.ch === 1) {
-      openMenu("第一章结算","站台重新开门",
+      openMenu("旧地铁站 · 配电结算","站台重新开门",
         "梁砚已加入。站口驿站可以接下一份运苗工单。",[
-        {title:"进入第二章 · 雨水高架",run:nextChapter},
+        {title:"前往驿站领取运苗工单",run:nextChapter},
         returnChoice
       ]);
     } else finish();
@@ -173,7 +178,7 @@ function commitPower(choice) {
     setPhase("complete");
     say("阿澄","你看，那边有人在灯下面写名字。");
     beep(630,.27);
-    openMenu("第一章结算","灯亮起来了",
+    openMenu("旧地铁站 · 配电结算","灯亮起来了",
       "梁砚加入小队，获得 3 废料。选一项入门专长，在下一趟运苗时使用。",[
       {title:"战斗 · 扳手伤害 +1",run:()=>pickSpecialty("combat")},
       {title:"运输 · 满载移速 +0.2 格/秒",run:()=>pickSpecialty("transport")},
@@ -204,8 +209,8 @@ function nextChapter(){
 function finish(){
   const first = {hospital:"医院优先",borrow:"邻区借电",mirror:"修反射镜"}[state.allocation] || "保底照明";
   const second=state.shore==="grow"?"温室育苗床先开启。":"居民抢修队先派工。";
-  openMenu("第二章结算","第一辆补给车过桥",
-    "第一章采用「"+first+"」。两箱幼苗已送达，桥头固定线路已接通。"+second+"\n此次试玩进度保存在当前浏览器。",[
+  openMenu("雨水高架 · 交付结算","第一辆补给车过桥",
+    "昨晚采用「"+first+"」的供电方案。两箱幼苗已送达，桥头固定线路已接通。"+second+"\n进度保存在当前浏览器。",[
     {title:"返回对岸查看",run:()=>say("巡线员","桥已开放，附近还可以继续走走。")},
     {title:"重新开始",run:confirmReset}
   ]);
@@ -268,7 +273,7 @@ function hitRally(score){
   ]);
 }
 function confirmReset() {
-  openMenu("试玩存档","重新开始两章？","这会从医院重新开始，并用新进度替换当前试玩存档。",[
+  openMenu("本地存档","重新开始游戏？","这会从医院重新开始，并用新进度替换当前存档。",[
     {title:"确认重新开始",run:()=>{state=opening();newRuntime();save();say("护士","去见林岚。今晚那条备用线还没确认。");syncHud();}},
     returnChoice
   ]);
@@ -433,7 +438,7 @@ function interactables() {
     for(const [x,y] of [[19,16],[45,17.8],[54,15.3]])items.push({x,y,label:"卸下一箱手提",action:splitCargo});
   }
   if(state.drop&&!state.held.length)items.push({...state.drop,label:"取回停放的货物",action:()=>stockOptions(state.drop.ids,true)});
-  if(phase==="power"||phase==="complete")add("power",phase==="power"?"打开配电面板":"查看章节结算",choosePower);
+  if(phase==="power"||phase==="complete")add("power",phase==="power"?"打开配电面板":"查看工单结算",choosePower);
   return items;
 }
 function nearest() {
@@ -787,10 +792,9 @@ function drawMap(){
   art.box(mini,state.x*sx-2,state.y*sy-2,5,5,"#a6edb4");
 }
 function render(dt) {
-  const vx=clamp(state.x*TILE-canvas.width/2,0,WIDTH*TILE-canvas.width);
-  const vy=clamp(state.y*TILE-canvas.height/2,0,HEIGHT*TILE-canvas.height);
-  runtime.cameraX+=(vx-runtime.cameraX)*Math.min(1,dt*8);
-  runtime.cameraY+=(vy-runtime.cameraY)*Math.min(1,dt*8);
+  const target=cameraTarget();
+  runtime.cameraX+=(target.cameraX-runtime.cameraX)*Math.min(1,dt*8);
+  runtime.cameraY+=(target.cameraY-runtime.cameraY)*Math.min(1,dt*8);
   const cx=Math.round(runtime.cameraX),cy=Math.round(runtime.cameraY);
   ctx.setTransform(1,0,0,1,0,0);
   ctx.drawImage(backgrounds[state.ch-1],cx,cy,canvas.width,canvas.height,0,0,canvas.width,canvas.height);
@@ -812,9 +816,10 @@ function render(dt) {
     art.box(ctx,xx-width/2-4,yy-8,width+8,12,"#182733ee");ctx.fillStyle="#d2ddd2";ctx.fillText(name,xx,yy+1);
   }
   ctx.restore();
-  const vignette=ctx.createRadialGradient(240,140,112,240,140,290);
+  const centerX=canvas.width/2,centerY=canvas.height/2;
+  const vignette=ctx.createRadialGradient(centerX,centerY,Math.min(centerX,centerY)*.78,centerX,centerY,Math.hypot(centerX,centerY));
   vignette.addColorStop(0,"#0b131900");vignette.addColorStop(1,"#06091180");
-  ctx.fillStyle=vignette;ctx.fillRect(0,0,480,288);
+  ctx.fillStyle=vignette;ctx.fillRect(0,0,canvas.width,canvas.height);
   const prompt=$("prompt");
   const label=active?.label||(state.held.length?"停放货物":"");
   if(prompt.lastElementChild.textContent!==label)prompt.lastElementChild.textContent=label;
@@ -832,11 +837,8 @@ function goalPoint() {
 function syncHud() {
   const goal=getGoal();
   const target=goalPoint();
-  $("chapter-index").textContent=state.ch===1?"第一章 · 平原":"第二章 · 平原";
-  $("chapter-title").textContent=currentMap().title;
   if($("goal-title").textContent!==goal[0])$("goal-title").textContent=goal[0];
   $("goal-text").textContent=state.ch===2&&state.phase==="bridgeBoss"&&state.held.length===0?"在桥头接应架取苗，再看预警挑路线。":goal[1];
-  $("step1").classList.toggle("current",state.ch===1);$("step2").classList.toggle("current",state.ch===2);
   $("location").textContent=state.ch===1?(state.x<10?"平原 · 中心医院":state.x<19?"平原 · 配电站":state.x<45?"平原 · 站外街区":"平原 · 旧地铁站"):(state.x<19?"平原 · 驿站":state.x<45?"平原 · 洪沟":"平原 · 雨水高架");
   $("day").textContent=state.ch===1?"战后第十八年 · 夜":"战后第十八年 · 次日";
   $("freight").textContent=state.ch===1?(state.held.length?"电池 ×1":state.phase==="power"||state.phase==="complete"?"已接入":"—"):(state.held.length?("在途 "+state.held.length+"/2"):(totalBoxes()+"/2"));
@@ -851,7 +853,7 @@ function syncHud() {
   $("stamina-bar").style.width=state.stamina+"%";
   $("light-dot").classList.toggle("dark",!isLit());
   $("light-label").textContent=isLit()?"固定照明":"暗区";
-  $("route-hint").textContent=state.phase==="complete"?"本章工单已结算。":"目标约 "+Math.ceil(distance(state,target))+" 格 · 上方主路，下方泵房便道。";
+  $("route-hint").textContent=state.phase==="complete"?"工单已结算。":"目标约 "+Math.ceil(distance(state,target))+" 格 · 上方主路，下方泵房便道。";
   let alert="";
   if(runtime.countdown>0) alert="布防 "+Math.ceil(runtime.countdown)+" 秒 · 可通过控制柜提前开战";
   if(state.phase==="defenseWave")alert="第 "+runtime.wave+"/2 波 · 控制柜 "+runtime.cabinet+"/70"+(runtime.disabled>0?" · 设备受干扰":"");
@@ -904,11 +906,8 @@ function releaseCanvasTouch(){
 function clearControls(){keys.clear();releaseCanvasTouch();}
 function canvasTap(event){
   const bounds=canvas.getBoundingClientRect();
-  const scale=Math.min(bounds.width/canvas.width,bounds.height/canvas.height);
-  const left=bounds.left+(bounds.width-canvas.width*scale)/2;
-  const top=bounds.top+(bounds.height-canvas.height*scale)/2;
-  const px=(event.clientX-left)/scale;
-  const py=(event.clientY-top)/scale;
+  const px=(event.clientX-bounds.left)*canvas.width/bounds.width;
+  const py=(event.clientY-bounds.top)*canvas.height/bounds.height;
   if(px<0||px>=canvas.width||py<0||py>=canvas.height)return;
   const tap={x:(px+Math.round(runtime.cameraX))/TILE,y:(py+Math.round(runtime.cameraY))/TILE};
   const targets=interactables().filter(item=>Math.abs(item.x-tap.x)<.95&&tap.y>=item.y-1.85&&tap.y<=item.y+.6);
@@ -960,6 +959,21 @@ newRuntime();
 save("本地存档");
 syncHud();
 if(state.phase==="hospital")say("护士","巡线员，林岚在医院入口等你。",5);
+const worldSize = new ResizeObserver(([entry]) => {
+  const {width, height} = entry.contentRect;
+  if (!width || !height) return;
+  // Keep sprite sizes readable and the camera crop inside the terrain bitmap.
+  const scale = Math.max(1.5, width / 640, height / 416);
+  const viewWidth = Math.max(1, Math.round(width / scale));
+  const viewHeight = Math.max(1, Math.round(height / scale));
+  if (viewWidth === canvas.width && viewHeight === canvas.height) return;
+  canvas.width = viewWidth;
+  canvas.height = viewHeight;
+  releaseCanvasTouch();
+  Object.assign(runtime, cameraTarget());
+  render(0);
+});
+worldSize.observe(canvas);
 function frame(time){
   const dt=Math.min((time-last)/1000,.04);
   last=time;now+=dt;

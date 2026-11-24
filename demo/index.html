@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0f13">
-  <title>借昼 · 第一至二章试玩</title>
+  <title>借昼 · Borrowed Daylight</title>
   <link rel="stylesheet" href="style.css">
   <script defer src="world.js"></script>
   <script defer src="art.js"></script>
@@ -12,20 +12,16 @@
 </head>
 <body>
   <main class="shell">
-    <header class="masthead">
-      <div class="identity">
-        <div class="lamp-logo" aria-hidden="true"></div>
-        <div><h1>借昼</h1><p>第一至二章试玩</p></div>
-      </div>
-      <div class="toolbar">
-        <span class="save-state"><i aria-hidden="true"></i><span id="save-label">本地存档</span></span>
-        <button id="sound" class="small" aria-pressed="false">声音关</button>
-        <button id="pause" class="small">暂停</button>
-      </div>
-    </header>
     <div class="layout">
       <section class="game-panel" aria-label="游戏画面">
-        <div class="scene-header"><span id="location">平原 · 中心医院</span><span id="day">战后第十八年 · 夜</span></div>
+        <header class="scene-header">
+          <div class="scene-meta"><span id="location">平原 · 中心医院</span><span id="day">战后第十八年 · 夜</span></div>
+          <div class="toolbar">
+            <span class="save-state"><i aria-hidden="true"></i><span id="save-label">本地存档</span></span>
+            <button id="sound" class="small" aria-pressed="false">声音关</button>
+            <button id="pause" class="small">暂停</button>
+          </div>
+        </header>
         <div class="viewport">
           <canvas id="world" width="480" height="288" aria-label="俯视角游戏画面"></canvas>
           <div id="screen-alert" class="screen-alert" hidden></div>
@@ -41,15 +37,12 @@
         </div>
       </section>
       <aside class="panel" aria-label="任务与地图">
-        <nav class="chapters" aria-label="章节进度"><span id="step1" class="current">第一章</span><span id="step2">第二章</span></nav>
         <div class="mission">
-          <p id="chapter-index" class="folio">第一章 · 平原</p>
-          <h2 id="chapter-title">名单上的空站</h2>
-          <div class="objective"><span>当前任务</span><h3 id="goal-title" aria-live="polite">去病房见林岚</h3><p id="goal-text"></p></div>
+          <div class="objective"><span>当前任务</span><h2 id="goal-title" aria-live="polite">去病房见林岚</h2><p id="goal-text"></p></div>
           <div class="mission-data"><span>货物 <b id="freight">—</b></span><span>废料 <b id="scrap">0</b></span><span>小队 <b id="crew">1</b></span></div>
         </div>
         <div class="map-card">
-          <div class="map-title"><h3>路线图</h3><span><i></i>当前位置</span></div>
+          <div class="map-title"><h2>路线图</h2><span><i></i>当前位置</span></div>
           <canvas id="map" width="280" height="99" aria-label="路线小地图"></canvas>
           <p id="route-hint"></p>
         </div>
