@@ -42,7 +42,9 @@ h1 { font-size: 32px; font-weight: 850; letter-spacing: .17em; line-height: 1.06
 .viewport { position: relative; background: #0b1118; overflow: hidden; border-block: 1px solid #2d414a; }
 .viewport::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(transparent 0 3px,#070b1210 3px 4px); z-index: 1; }
 canvas { display: block; width: 100%; image-rendering: pixelated; }
+#world { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .screen-alert, .prompt, .dialogue { z-index: 2; position: absolute; }
+.screen-alert, .prompt { pointer-events: none; }
 .screen-alert { top: 12px; left: 50%; transform: translateX(-50%); max-width: 94%; text-align: center; padding: 6px 10px; border: 1px solid #a77a4d; background: #241a15ee; color: var(--amber); font-size: 12px; }
 .prompt { bottom: 13px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #0b1119eb; border: 1px solid #5b8478; padding: 5px 10px 5px 5px; display: flex; gap: 8px; align-items: center; color: var(--green); font-size: 13px; }
 .prompt kbd { color: #152820; background: var(--green); border-color: var(--green); }
@@ -77,62 +79,10 @@ canvas { display: block; width: 100%; image-rendering: pixelated; }
 .map-card canvas { background: var(--well); border: 1px solid #27333d; }
 .map-card p { margin-top: 8px; min-height: 38px; }
 .field-note { padding: 11px 16px; border-top: 1px solid var(--line); color: var(--dim); }
-.footer { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 19px; padding: 13px 1px; font-size: 12px; color: var(--dim); }
+.footer { padding: 13px 1px; font-size: 12px; color: var(--dim); }
+.keyboard-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 9px 19px; }
+.gesture-note { display: none; color: var(--soft); line-height: 1.55; }
 kbd { font: inherit; font-size: 11px; display: inline-block; min-width: 19px; text-align: center; color: var(--soft); border: 1px solid #3a4552; background: #151c27; padding: 2px 4px; margin-right: 2px; }
-.touch, .touch-hint { display: none; }
-.touch {
-  --stick-size: 88px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
-  border-top: 1px solid var(--line);
-  background: var(--well);
-  user-select: none;
-  -webkit-user-select: none;
-}
-.joystick {
-  position: relative;
-  flex: 0 0 var(--stick-size);
-  width: var(--stick-size);
-  height: var(--stick-size);
-  border: 1px solid #537169;
-  border-radius: 50%;
-  background: radial-gradient(circle, #23372f 0 16%, #19292e 17% 47%, #111d24 48%);
-  touch-action: none;
-}
-.joystick-ring {
-  position: absolute;
-  inset: 15%;
-  border: 1px solid #527367;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.joystick-knob {
-  position: absolute;
-  inset: 30%;
-  border: 1px solid #789d87;
-  border-radius: 50%;
-  background: #334e46;
-  transform: translate3d(var(--joy-x, 0px), var(--joy-y, 0px), 0);
-  pointer-events: none;
-}
-.joystick.active .joystick-knob { background: #658d72; border-color: var(--green); }
-.touch-actions { display: flex; gap: clamp(6px, 2vw, 12px); align-items: center; }
-.touch button {
-  min-width: 45px;
-  min-height: 45px;
-  padding: 0 7px;
-  background: var(--panel);
-  border: 1px solid #465c5c;
-  color: var(--light);
-  font-size: 12px;
-  touch-action: manipulation;
-}
-.touch button:active, .touch button[aria-pressed="true"] { color: var(--green); border-color: var(--green); }
-.touch button:disabled { color: var(--dim); opacity: .5; cursor: default; }
-.touch .touch-primary { min-width: 54px; min-height: 54px; background: #1b3029; border-color: #7aa88b; color: var(--green); }
-#touch-sprint { touch-action: none; }
 dialog { max-width: min(560px, calc(100vw - 24px)); width: 100%; padding: 0; color: var(--light); border: 1px solid #587167; background: var(--panel); box-shadow: 0 25px 70px #000a; max-height: calc(100dvh - 22px); }
 dialog::backdrop { background: #080f17a9; backdrop-filter: blur(3px); }
 .dialog-inner { padding: 23px; }
@@ -165,22 +115,20 @@ dialog::backdrop { background: #080f17a9; backdrop-filter: blur(3px); }
   .map-card { display: none; }
   .status-bar { padding: 8px; gap: 10px; }
   .scene-header { padding: 7px 8px; font-size: 10px; }
-  .field-note, .footer { display: none; }
+  .field-note { display: none; }
   .dialogue { bottom: 33px; padding: 5px 8px; font-size: 11px; max-width: 76%; }
   .prompt { bottom: 4px; font-size: 11px; padding-block: 2px; }
   .screen-alert { top: 5px; font-size: 10px; padding: 3px 5px; }
 }
 @media (hover: none) and (pointer: coarse), (max-width: 640px) {
-  .touch { display: flex; }
-  .touch-hint { display: inline-block; padding: 2px 4px; color: #142820; background: var(--green); font-size: 10px; }
-  .keyboard-hint, .footer { display: none; }
+  .keyboard-hint, .keyboard-controls { display: none; }
+  .gesture-note { display: block; }
 }
 @media (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
   .shell { padding: 8px; }
   .masthead { margin-bottom: 7px; }
   .layout { grid-template-columns: minmax(0, 1fr) minmax(155px, 27%); }
-  .viewport canvas { height: clamp(100px, calc(100dvh - 209px), 320px); object-fit: contain; }
-  .touch { --stick-size: 72px; padding-block: 4px; }
+  .viewport canvas { height: clamp(100px, calc(100dvh - 138px), 320px); object-fit: contain; }
   .scene-header, .status-bar { padding: 5px 8px; }
   .map-card, .field-note { display: none; }
 }

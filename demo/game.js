@@ -6,11 +6,9 @@ const ctx = canvas.getContext("2d");
 const mapCanvas = $("map");
 const mini = mapCanvas.getContext("2d");
 const menu = $("menu");
-const joystick = $("joystick");
-const sprintButton = $("touch-sprint");
 const backgrounds = MAPS.map((map, i) => art.terrain(map, i + 1));
 const keys = new Set();
-const touchInput = {stick: null, sprint: null, x: 0, y: 0};
+const touchInput = {pointer: null, startX: 0, startY: 0, x: 0, y: 0, moved: false, sprint: false, timer: 0};
 const saveKey = "jiezhou-demo-v1";
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const at = pair => ({x: pair[0], y: pair[1]});
@@ -441,9 +439,8 @@ function interactables() {
 function nearest() {
   return interactables().filter(item=>distance(item,state)<1.58).sort((a,b)=>distance(a,state)-distance(b,state))[0];
 }
-function use() {
+function use(item=nearest()) {
   if(menu.open)return;
-  const item=nearest();
   if(item){beep(254,.07);item.action();}
   else if(state.held.length)putCargoDown();
   syncHud();
@@ -496,7 +493,7 @@ function updateMovement(dt){
   runtime.walking=strength>0;
   if(dx)runtime.flip=Math.sign(dx);
   let speed=state.carry==="cart"?2.8+(state.specialty==="transport"?.2:0):state.carry==="hand"?3.4:4;
-  const sprinting=touchInput.sprint!==null||keys.has("ShiftLeft")||keys.has("ShiftRight");
+  const sprinting=touchInput.sprint||keys.has("ShiftLeft")||keys.has("ShiftRight");
   if(strength&&!state.carry&&sprinting&&state.stamina>0){
     speed=5.6;state.stamina=Math.max(0,state.stamina-10*dt*strength);runtime.lastSprint=runtime.elapsed;
   }
@@ -843,9 +840,11 @@ function syncHud() {
   $("location").textContent=state.ch===1?(state.x<10?"平原 · 中心医院":state.x<19?"平原 · 配电站":state.x<45?"平原 · 站外街区":"平原 · 旧地铁站"):(state.x<19?"平原 · 驿站":state.x<45?"平原 · 洪沟":"平原 · 雨水高架");
   $("day").textContent=state.ch===1?"战后第十八年 · 夜":"战后第十八年 · 次日";
   $("freight").textContent=state.ch===1?(state.held.length?"电池 ×1":state.phase==="power"||state.phase==="complete"?"已接入":"—"):(state.held.length?("在途 "+state.held.length+"/2"):(totalBoxes()+"/2"));
+  $("gesture-note").textContent=state.held.length
+    ?"拖动画面移动，点按近处标记交互，点自己放下货物。"
+    :"拖动画面移动，拖远可冲刺。点按近处标记交互，长按打开小队。";
   $("scrap").textContent=state.scrap;
   $("crew").textContent=1+(state.flags.engineer||state.flags.tempEngineer?1:0)+(state.flags.grower?1:0);
-  $("touch-crew").disabled=!(state.flags.engineer||state.flags.tempEngineer);
   $("hp").textContent=Math.ceil(state.hp);
   $("stamina").textContent=Math.ceil(state.stamina);
   $("hp-bar").style.width=state.hp+"%";
@@ -864,7 +863,7 @@ function syncHud() {
 }
 function pause(){
   if(menu.open){closeMenu();return;}
-  openMenu("暂停","出勤已暂停","WASD 或方向键移动，E 交互，Shift 冲刺，空格发出小队指令。",[
+  openMenu("暂停","出勤已暂停","触屏拖动移动，拖远冲刺，点按近处标记交互，长按打开小队。\n键盘可用 WASD、E、Shift 和空格。",[
     {title:"继续出勤"},
     {title:"从检查点重试",run:resetFromCheckpoint},
     {title:"重新开始",run:confirmReset}
@@ -894,78 +893,68 @@ $("sound").addEventListener("click",async()=>{
   $("sound").setAttribute("aria-pressed",String(audioOn));
   $("sound").textContent=audioOn?"声音开":"声音关";
 });
-function bindTouchAction(button, action){
-  let lastTouchEnd=-Infinity;
-  button.addEventListener("pointerdown",event=>{
-    if(event.pointerType==="touch"){
-      event.preventDefault();
-      button.setPointerCapture(event.pointerId);
-    }
-  });
-  button.addEventListener("pointerup",event=>{
-    if(event.pointerType!=="touch")return;
-    lastTouchEnd=performance.now();
-    const box=button.getBoundingClientRect();
-    if(event.clientX>=box.left&&event.clientX<=box.right&&event.clientY>=box.top&&event.clientY<=box.bottom)action();
-  });
-  button.addEventListener("click",event=>{
-    if(event.detail===0||performance.now()-lastTouchEnd>450)action();
-  });
-}
-bindTouchAction($("touch-use"),use);
-bindTouchAction($("touch-crew"),crewMenu);
-
-function releaseStick(){
-  const id=touchInput.stick;
-  touchInput.stick=null;
+function releaseCanvasTouch(){
+  const id=touchInput.pointer;
+  touchInput.pointer=null;
   touchInput.x=0;touchInput.y=0;
-  joystick.style.removeProperty("--joy-x");
-  joystick.style.removeProperty("--joy-y");
-  joystick.classList.remove("active");
-  if(id!==null&&joystick.hasPointerCapture(id))joystick.releasePointerCapture(id);
+  touchInput.sprint=false;
+  clearTimeout(touchInput.timer);
+  if(id!==null&&canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);
 }
-function releaseSprint(){
-  const id=touchInput.sprint;
-  touchInput.sprint=null;
-  sprintButton.setAttribute("aria-pressed","false");
-  if(id!==null&&sprintButton.hasPointerCapture(id))sprintButton.releasePointerCapture(id);
+function clearControls(){keys.clear();releaseCanvasTouch();}
+function canvasTap(event){
+  const bounds=canvas.getBoundingClientRect();
+  const scale=Math.min(bounds.width/canvas.width,bounds.height/canvas.height);
+  const left=bounds.left+(bounds.width-canvas.width*scale)/2;
+  const top=bounds.top+(bounds.height-canvas.height*scale)/2;
+  const px=(event.clientX-left)/scale;
+  const py=(event.clientY-top)/scale;
+  if(px<0||px>=canvas.width||py<0||py>=canvas.height)return;
+  const tap={x:(px+Math.round(runtime.cameraX))/TILE,y:(py+Math.round(runtime.cameraY))/TILE};
+  const targets=interactables().filter(item=>Math.abs(item.x-tap.x)<.95&&tap.y>=item.y-1.85&&tap.y<=item.y+.6);
+  const target=targets.sort((a,b)=>distance(a,state)-distance(b,state))[0];
+  if(target){
+    if(distance(target,state)<1.58)use(target);
+    else say("提示","走近后点按目标。",2);
+    return;
+  }
+  if(state.held.length&&distance(tap,{x:state.x,y:state.y-.5})<1)use(null);
 }
-function clearControls(){keys.clear();releaseStick();releaseSprint();}
-function updateStick(event){
-  const bounds=joystick.getBoundingClientRect();
-  const radius=Math.min(bounds.width,bounds.height)*.30;
-  const x=event.clientX-bounds.left-bounds.width/2;
-  const y=event.clientY-bounds.top-bounds.height/2;
+canvas.addEventListener("pointerdown",event=>{
+  if(event.pointerType==="mouse"||menu.open||touchInput.pointer!==null||event.button!==0)return;
+  event.preventDefault();
+  touchInput.pointer=event.pointerId;
+  touchInput.startX=event.clientX;
+  touchInput.startY=event.clientY;
+  touchInput.moved=false;
+  canvas.setPointerCapture(event.pointerId);
+  if(state.flags.engineer||state.flags.tempEngineer){
+    touchInput.timer=setTimeout(crewMenu,570);
+  }
+});
+canvas.addEventListener("pointermove",event=>{
+  if(event.pointerId!==touchInput.pointer)return;
+  const x=event.clientX-touchInput.startX;
+  const y=event.clientY-touchInput.startY;
   const length=Math.hypot(x,y);
-  const visual=length===0?0:Math.min(length,radius)/length;
-  const deadZone=.17;
-  const pull=clamp((length/radius-deadZone)/(1-deadZone),0,1);
+  const deadZone=6;
+  if(length>deadZone){
+    touchInput.moved=true;
+    clearTimeout(touchInput.timer);
+  }
+  const pull=clamp((length-deadZone)/22,0,1);
   touchInput.x=length===0?0:x/length*pull;
   touchInput.y=length===0?0:y/length*pull;
-  joystick.style.setProperty("--joy-x",x*visual+"px");
-  joystick.style.setProperty("--joy-y",y*visual+"px");
-}
-joystick.addEventListener("pointerdown",event=>{
-  if(menu.open||touchInput.stick!==null||event.button!==0)return;
-  event.preventDefault();
-  touchInput.stick=event.pointerId;
-  joystick.setPointerCapture(event.pointerId);
-  joystick.classList.add("active");
-  updateStick(event);
+  touchInput.sprint=length>=52;
 });
-joystick.addEventListener("pointermove",event=>{
-  if(event.pointerId===touchInput.stick)updateStick(event);
+canvas.addEventListener("pointerup",event=>{
+  if(event.pointerId!==touchInput.pointer)return;
+  const tap=!touchInput.moved;
+  releaseCanvasTouch();
+  if(tap)canvasTap(event);
 });
-sprintButton.addEventListener("pointerdown",event=>{
-  if(menu.open||touchInput.sprint!==null||event.button!==0)return;
-  event.preventDefault();
-  touchInput.sprint=event.pointerId;
-  sprintButton.setPointerCapture(event.pointerId);
-  sprintButton.setAttribute("aria-pressed","true");
-});
-for(const eventName of ["pointerup","pointercancel","lostpointercapture"]){
-  joystick.addEventListener(eventName,event=>{if(event.pointerId===touchInput.stick)releaseStick();});
-  sprintButton.addEventListener(eventName,event=>{if(event.pointerId===touchInput.sprint)releaseSprint();});
+for(const eventName of ["pointercancel","lostpointercapture"]){
+  canvas.addEventListener(eventName,event=>{if(event.pointerId===touchInput.pointer)releaseCanvasTouch();});
 }
 newRuntime();
 save("本地存档");
