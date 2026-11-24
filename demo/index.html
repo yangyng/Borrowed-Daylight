@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0f13">
   <title>借昼 · Borrowed Daylight</title>
-  <link rel="stylesheet" href="style.css">
-  <script defer src="world.js"></script>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script defer src="world.js?v=2"></script>
   <script defer src="art.js"></script>
-  <script defer src="game.js"></script>
+  <script defer src="story.js?v=2"></script>
+  <script defer src="game.js?v=2"></script>
 </head>
 <body>
   <main class="shell">
@@ -58,7 +59,18 @@
       <p id="gesture-note" class="gesture-note">拖动画面移动，拖远可冲刺。点按近处标记交互，长按打开小队。</p>
     </footer>
   </main>
-  <dialog id="menu">
+  <dialog id="story" aria-labelledby="story-title">
+    <div class="story-inner">
+      <p id="story-place" class="folio"></p>
+      <h2 id="story-title"></h2>
+      <div class="story-line" aria-live="polite"><span id="story-speaker"></span><p id="story-text"></p></div>
+      <div class="story-actions">
+        <button type="button" id="story-skip" class="small">跳过过场</button>
+        <button type="button" id="story-next" class="small" autofocus>继续</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="menu" aria-labelledby="modal-title">
     <div class="dialog-inner">
       <p class="folio" id="modal-label"></p>
       <h2 id="modal-title"></h2>

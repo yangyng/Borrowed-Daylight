@@ -86,6 +86,15 @@ canvas { display: block; width: 100%; image-rendering: pixelated; }
 kbd { font: inherit; font-size: 11px; display: inline-block; min-width: 19px; text-align: center; color: var(--soft); border: 1px solid #3a4552; background: #151c27; padding: 2px 4px; margin-right: 2px; }
 dialog { max-width: min(560px, calc(100vw - 24px)); width: 100%; padding: 0; color: var(--light); border: 1px solid #587167; background: var(--panel); box-shadow: 0 25px 70px #000a; max-height: calc(100dvh - 22px); }
 dialog::backdrop { background: #080f17a9; backdrop-filter: blur(3px); }
+#story { inset: auto 0 max(10px, env(safe-area-inset-bottom)); margin: 0 auto; max-width: min(520px, calc(100vw - 20px)); background: #111922f6; border-top: 2px solid var(--green); }
+#story::backdrop { background: #05091042; backdrop-filter: none; }
+.story-inner { padding: 13px 16px 12px; }
+.story-inner h2 { margin: 4px 0 8px; font-size: 20px; }
+.story-line { color: var(--light); font-size: 13px; line-height: 1.6; }
+#story-speaker { color: var(--amber); font-size: 11px; }
+#story-speaker:empty { display: none; }
+.story-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+#story-next { color: #13241d; background: var(--green); border-color: var(--green); }
 .dialog-inner { padding: 23px; }
 .dialog-inner h2 { margin: 7px 0 9px; font-size: 24px; }
 .dialog-inner > p:not(.folio) { color: var(--soft); line-height: 1.65; font-size: 13px; white-space: pre-line; }
@@ -134,6 +143,9 @@ dialog::backdrop { background: #080f17a9; backdrop-filter: blur(3px); }
 @media (orientation: landscape) and (max-height: 540px) {
   .layout { grid-template-columns: minmax(0, 1fr) clamp(155px, 25vw, 230px); grid-template-rows: minmax(0, 1fr); }
   .map-card { display: block; }
+  .story-inner { padding: 8px 12px; }
+  .story-inner h2 { margin-block: 2px 4px; font-size: 16px; }
+  .story-actions { margin-top: 5px; }
 }
 @media (orientation: landscape) and (max-height: 360px) {
   .scene-header, .status-bar, .map-card { padding-block: 3px; }

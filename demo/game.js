@@ -3,9 +3,12 @@
 const $ = id => document.getElementById(id);
 const canvas = $("world");
 const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 const mapCanvas = $("map");
 const mini = mapCanvas.getContext("2d");
 const menu = $("menu");
+const storyDialog = $("story");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const backgrounds = MAPS.map((map, i) => art.terrain(map, i + 1));
 const keys = new Set();
 const touchInput = {pointer: null, startX: 0, startY: 0, x: 0, y: 0, moved: false, sprint: false, timer: 0};
@@ -38,6 +41,7 @@ let now = 0;
 let last = performance.now();
 let uiTime = 0;
 let rally = null;
+let story = null;
 const currentMap = () => MAPS[state.ch - 1];
 const point = name => at(currentMap().points[name === "stock" ? stockPoint() : name]);
 const stockPoint = () => state.allocation === "borrow" ? "stockB" : state.allocation === "mirror" && state.flags.mirror ? "stockC" : "stockA";
@@ -69,10 +73,11 @@ function beep(freq, duration = .09, type = "triangle", volume = .055) {
   osc.connect(gain);gain.connect(soundContext.destination);
   osc.start(start);osc.stop(start+duration);
 }
-function cameraTarget() {
+function cameraTarget(focus = state, scale = 1) {
+  const width = canvas.width / scale, height = canvas.height / scale;
   return {
-    cameraX: clamp(state.x * TILE - canvas.width / 2, 0, WIDTH * TILE - canvas.width),
-    cameraY: clamp(state.y * TILE - canvas.height / 2, 0, HEIGHT * TILE - canvas.height)
+    cameraX: clamp(focus.x * TILE - width / 2, 0, WIDTH * TILE - width),
+    cameraY: clamp(focus.y * TILE - height / 2, 0, HEIGHT * TILE - height)
   };
 }
 function newRuntime() {
@@ -103,7 +108,7 @@ function beginBoss(kind) {
   state.hp = 100;
   state.stamina = 100;
   setPhase(kind === "station" ? "stationBoss" : "bridgeBoss");
-  if(kind === "station") say("梁砚","听见广播说「无人」，它会停一下。别让它夹住电池。",6);
+  if(kind === "station") playStory("machine");
   else say("梁砚","先在接应架取苗。摊铺车抬臂时，另一侧能过。",6);
   beep(95,.25);
 }
@@ -141,9 +146,48 @@ function openMenu(label, title, copy, options) {
 function closeMenu() { if(menu.open) menu.close(); clearControls(); rally=null; $("rally-meter").hidden=true; }
 const returnChoice = {title:"返回现场"};
 
+function showStoryBeat() {
+  const beat = story.scene.beats[story.index];
+  story.focus = point(beat.focus);
+  story.from = beat.from ? point(beat.from) : null;
+  story.effect = beat.effect;
+  story.started = now;
+  $("story-speaker").textContent = beat.speaker;
+  $("story-text").textContent = beat.text;
+  $("story-next").textContent = story.index + 1 === story.scene.beats.length ? "返回现场" : "继续";
+}
+function playStory(id, after) {
+  clearControls();
+  runtime.walking = false;
+  $("dialogue").hidden = true;
+  const scene = STATION_STORY[id];
+  story = {id, scene, index: 0, after};
+  $("story-place").textContent = scene.place;
+  $("story-title").textContent = scene.title;
+  showStoryBeat();
+  storyDialog.showModal();
+}
+function endStory() {
+  if (!story) return;
+  const {after} = story;
+  story = null;
+  storyDialog.close();
+  Object.assign(runtime, cameraTarget());
+  after?.();
+  syncHud();
+}
+function showOpening() {
+  if (state.ch !== 1 || state.phase !== "hospital" || state.flags.openingSeen) return;
+  playStory("opening", () => {
+    state.flags.openingSeen = true;
+    save();
+  });
+}
+
 function choosePower() {
   if(state.phase === "complete") {
     if(state.ch === 1) {
+      if(!state.specialty){offerSpecialty();return;}
       openMenu("旧地铁站 · 配电结算","站台重新开门",
         "梁砚已加入。站口驿站可以接下一份运苗工单。",[
         {title:"前往驿站领取运苗工单",run:nextChapter},
@@ -176,14 +220,8 @@ function commitPower(choice) {
     state.flags.engineer = true;
     state.scrap += 3;
     setPhase("complete");
-    say("阿澄","你看，那边有人在灯下面写名字。");
     beep(630,.27);
-    openMenu("旧地铁站 · 配电结算","灯亮起来了",
-      "梁砚加入小队，获得 3 废料。选一项入门专长，在下一趟运苗时使用。",[
-      {title:"战斗 · 扳手伤害 +1",run:()=>pickSpecialty("combat")},
-      {title:"运输 · 满载移速 +0.2 格/秒",run:()=>pickSpecialty("transport")},
-      {title:"工程 · 额外获得 1 废料",run:()=>pickSpecialty("engineering")}
-    ]);
+    playStory("restored", offerSpecialty);
   } else {
     state.shore = choice;
     state.scrap += 4;
@@ -192,6 +230,14 @@ function commitPower(choice) {
     say("梁砚","听，第一辆车过桥了。");
     finish();
   }
+}
+function offerSpecialty() {
+  openMenu("旧地铁站 · 配电结算","灯亮起来了",
+    "梁砚加入小队，获得 3 废料。选一项入门专长，在下一趟运苗时使用。",[
+    {title:"战斗 · 扳手伤害 +1",run:()=>pickSpecialty("combat")},
+    {title:"运输 · 满载移速 +0.2 格/秒",run:()=>pickSpecialty("transport")},
+    {title:"工程 · 额外获得 1 废料",run:()=>pickSpecialty("engineering")}
+  ]);
 }
 function pickSpecialty(choice) {
   if(state.specialty) return;
@@ -274,7 +320,7 @@ function hitRally(score){
 }
 function confirmReset() {
   openMenu("本地存档","重新开始游戏？","这会从医院重新开始，并用新进度替换当前存档。",[
-    {title:"确认重新开始",run:()=>{state=opening();newRuntime();save();say("护士","去见林岚。今晚那条备用线还没确认。");syncHud();}},
+    {title:"确认重新开始",run:()=>{state=opening();newRuntime();save();showOpening();}},
     returnChoice
   ]);
 }
@@ -287,13 +333,19 @@ function takeCargo(mode, ids) {
     const left=state.drop.ids.filter(id=>!state.held.includes(id));
     state.drop=left.length?{...state.drop,ids:left}:null;
   }
-  if(state.phase==="collect")setPhase("transport");else save();
+  if(state.phase==="collect"){
+    setPhase("transport");
+    if(state.ch===1)playStory("delivery");
+  } else save();
   beep(340);
 }
-function stockOptions(ids, dropped = false) {
-  openMenu("货物","选择搬运方式","推车一次带两箱。泵房便道较窄，可手提一箱走近路。",[
+function stockOptions(ids) {
+  const battery = state.ch===1;
+  openMenu("货物","选择搬运方式",battery
+    ? "这一组电池可用推车走灯廊，也可手提走泵房便道。"
+    : "推车一次带两箱。泵房便道较窄，可手提一箱走近路。",[
     {title:"牵引推车",note:"通行宽路，移动较慢。",run:()=>takeCargo("cart",ids)},
-    {title:"手提一箱",note:"通过泵房便道，另一箱留在接货处。",run:()=>takeCargo("hand",ids)},
+    {title:battery?"手提电池":"手提一箱",note:battery?"可通过泵房便道。":"通过泵房便道，另一箱留在接货处。",run:()=>takeCargo("hand",ids)},
     returnChoice
   ]);
 }
@@ -377,29 +429,62 @@ function interactables() {
   const add=(key,label,action)=>items.push({...point(key),label,action});
   const ch=state.ch, phase=state.phase;
   if(ch===1){
-    if(phase==="hospital")add("hospital","与林岚交谈",()=>{say("林岚","隔壁病床也在等今晚的电。查清楚再签。");setPhase("workorder");});
-    if(phase==="workorder")add("supply","领取断电工单",()=>{say("配电站","旧站登记为空。医院接在同一条备用线上。");setPhase("scout");});
-    if(phase==="scout")add("scout","核查站台",()=>{state.flags.tempEngineer=true;setPhase("collect");say("梁砚","站里有人，灯下还养着苗。去配电站取一组电池。",6);});
+    if(phase==="hospital")add("hospital","与林岚交谈",()=>{
+      setPhase("ward");
+      say("林岚","电表在我右上方。灯快灭时，最下面那一格会闪。你去抄一下。");
+    });
+    if(phase==="ward")add("wardMeter","抄录病房电表",()=>{setPhase("workorder");playStory("ward");});
+    if(phase==="workorder")add("supply","领取断电工单",()=>{
+      setPhase("relay");
+      say("配电员","旧站登记为零，今晚例行断线。你带来的电表号和那张单是同一根线。先去东边分线箱验一下。",7);
+    });
+    if(phase==="relay")add("fork","检查分线箱",()=>{setPhase("routeSurvey");playStory("fork");});
+    if(phase==="routeSurvey"){
+      add("northMarker","核对灯廊示廓灯",()=>{
+        setPhase("scout");say("巡线员","灯廊能通车。前面有检修机，走到灯下还能恢复体力。",6);
+      });
+      add("southMarker","核对泵房反光牌",()=>{
+        setPhase("scout");say("巡线员","反光牌指向泵房门。沿南路向东走，门闩在西侧。",6);
+      });
+    }
+    if(phase==="scout")add("scout","与梁砚核查站台",()=>{
+      state.flags.tempEngineer=true;
+      setPhase("collect");
+      playStory("residents");
+    });
     if(phase==="collect")add("supply","领取应急电池",()=>stockOptions([0]));
     if(["scout","collect","transport"].includes(phase)){
       if(!state.flags.gate)add("gate","打开手动检修门",()=>{state.flags.gate=true;save();beep(290);say("巡线员","检修门会保持开启。推车只能走灯廊。");});
       if(!state.flags.road)add("road","铺好裂砖便道 · 现场有材料",()=>{state.flags.road=true;save();beep(445);say("巡线员","路面已铺好。以后推车经过不会减速。");});
     }
-    if(phase==="transport"&&state.held.length)add("intake","运入检票区",()=>beginBoss("station"));
+    if(phase==="transport"&&state.held.length)add("intake","把电池放到接应位",()=>{
+      state.drop={...point("batteryRack"),ids:state.held,mode:state.carry};
+      state.held=[];
+      state.carry="";
+      runtime.enemies=[];
+      setPhase("inspection");
+      playStory("intake");
+    });
+    if(phase==="inspection")add("lever","释放北侧检修闸",()=>{
+      state.flags.lever=true;
+      beginBoss("station");
+    });
     if(phase==="stationBoss"){
       if(!state.flags.lever)add("lever","释放检修闸",()=>{state.flags.lever=true;beep(440);say("梁砚","检修闸开了。等「无人」广播，再把电池接上。");});
       add("socket","接入应急电池",()=>{
         if(!state.held.length){say("巡线员","先把电池带来。");return;}
         if(runtime.boss && !bossExposed()){say("梁砚","等广播停顿。警示带熄灭后再接。",3);return;}
         runtime.boss=null;runtime.enemies=[];state.held=[];state.carry="";state.drop=null;
-        setPhase("power");say("验票机","站内有人。",5);beep(615,.22);
+        state.flags.station=true;
+        setPhase("audit");say("验票机","站内检测到人员。请到配电台补录。",5);beep(615,.22);
       });
     }
+    if(phase==="audit")add("power","核对两边的用电需求",()=>{setPhase("power");playStory("audit");});
     if(phase==="power"){
       if(!state.flags.borrow)add("borrow","向邻区争取借电",()=>{state.flags.borrow=true;save();say("邻区值班","一格电可以借你。我们这边会提前关一段灯。");});
       if(!state.flags.mirror)add("mirror","修复屋顶反射镜",()=>{state.flags.mirror=true;save();beep(500);say("梁砚","镜子对准了。夜里还是用电，天亮就能接到光。");});
     }
-    if(!["hospital","workorder","scout","stationBoss"].includes(phase)){
+    if(["collect","transport","audit","power","complete"].includes(phase)){
       for(const key of ["nameA","nameB"])if(!state.flags[key])add(key,"记录住户姓名",()=>{state.flags[key]=true;save();say("住户",key==="nameA"?"把葛阿姨也算上。她在门里歇着。":"我叫陶岑。灯亮了我就来接班。");});
       if(state.flags.nameA && state.flags.nameB && !state.flags.names)add("acheng","把住户名单交给阿澄",()=>{state.flags.names=true;state.scrap++;save();say("阿澄","我把字写大一点。下次送货就认得他们了。");});
     }
@@ -437,7 +522,9 @@ function interactables() {
   if((state.carry==="cart")&&["transport","bridgeBoss"].includes(phase)){
     for(const [x,y] of [[19,16],[45,17.8],[54,15.3]])items.push({x,y,label:"卸下一箱手提",action:splitCargo});
   }
-  if(state.drop&&!state.held.length)items.push({...state.drop,label:"取回停放的货物",action:()=>stockOptions(state.drop.ids,true)});
+  if(state.drop&&!state.held.length&&phase!=="inspection"){
+    items.push({...state.drop,label:ch===1?"取回应急电池":"取回停放的货物",action:()=>stockOptions(state.drop.ids)});
+  }
   if(phase==="power"||phase==="complete")add("power",phase==="power"?"打开配电面板":"查看工单结算",choosePower);
   return items;
 }
@@ -445,7 +532,7 @@ function nearest() {
   return interactables().filter(item=>distance(item,state)<1.58).sort((a,b)=>distance(a,state)-distance(b,state))[0];
 }
 function use(item=nearest()) {
-  if(menu.open)return;
+  if(menu.open||story)return;
   if(item){beep(254,.07);item.action();}
   else if(state.held.length)putCargoDown();
   syncHud();
@@ -521,13 +608,15 @@ function passable(x,y){
   if(!art.roadAt(currentMap(),x,y))return false;
   if(state.carry==="cart"&&x>=20&&x<43&&y>=18)return false;
   if(state.ch===1&&x>=36&&x<37&&y>=18&&y<22&&!state.flags.gate)return false;
-  if(state.ch===1&&state.phase!=="stationBoss"&&["hospital","workorder","scout","collect","transport"].includes(state.phase)&&x>53)return false;
+  if(state.ch===1&&x>53&&!["inspection","stationBoss","audit","power","complete"].includes(state.phase))return false;
+  if(state.ch===1&&state.phase==="inspection"&&x>=56)return false;
   if(state.ch===1&&state.phase==="stationBoss"&&runtime.boss&&!bossExposed()&&!state.flags.lever&&x>=55.7&&x<56.4&&y>11.8&&y<16.1)return false;
   if(state.ch===2&&["collect","transport","defensePrep","defenseWave"].includes(state.phase)&&x>53.8)return false;
   return true;
 }
 function lamps(){
   const result=currentMap().lamps.filter(([x])=>!(state.ch===2&&state.allocation==="borrow"&&x===34));
+  if(state.ch===1&&state.phase==="complete")result.push([61.6,17.2,3.2]);
   if(state.ch===2&&state.flags.pump)result.push([33.7,20,2.6]);
   if(state.ch===2)for(const [key,device] of Object.entries(state.towers))if(device.kind==="light"&&runtime.disabled<=0){const p=point(key);result.push([p.x,p.y,2.8]);}
   return result;
@@ -538,8 +627,13 @@ function triggerPatrols(){
   const ch=state.ch;
   const phase=state.phase;
   if(ch===1&&(phase==="scout"||phase==="transport")){
-    once("top",state.x>23&&state.x<38&&state.y<12,[["patrol",30,8.7],["patrol",33,9.6],["thief",36,8.9]]);
-    once("bottom",state.x>25&&state.x<37&&state.y>=18,[["patrol",31,20],["thief",34,20.6]]);
+    const hauling=phase==="transport";
+    once(phase+"Top",state.x>23&&state.x<38&&state.y<12,hauling
+      ?[["thief",38.5,8.9]]
+      :[["patrol",30,8.7],["patrol",33,9.6]]);
+    once(phase+"Bottom",state.x>25&&state.x<37&&state.y>=18,hauling
+      ?[["thief",34,20.6]]
+      :[["patrol",31,20]]);
   }
   if(ch===2&&phase==="transport"){
     once("top",state.x>24&&state.x<38&&state.y<12,[["patrol",31,8],["patrol",34,10],["thief",38,9]]);
@@ -639,7 +733,7 @@ function updateAttacks(dt){
   if(runtime.xp>=3&&!runtime.upgrade&&!menu.open&&["scout","transport","defenseWave"].includes(state.phase)&&state.hp>0)chooseUpgrade();
 }
 function advance(dt){
-  if(menu.open)return;
+  if(menu.open||story)return;
   runtime.elapsed+=dt;
   runtime.invuln=Math.max(0,runtime.invuln-dt);
   runtime.disabled=Math.max(0,runtime.disabled-dt);
@@ -683,7 +777,10 @@ function drawGate(){
     for(let y=18;y<22;y+=.5)art.box(ctx,36.3*TILE,y*TILE,4,7,"#657079");
     art.box(ctx,36.25*TILE,19.5*TILE,6,4,"#e8bd78");
   }
-  if(state.phase==="stationBoss" && runtime.boss && !bossExposed()&&!state.flags.lever){
+  if(state.phase==="inspection"||story?.effect==="raiseGate"){
+    const open=story?.effect==="raiseGate"?(reducedMotion.matches?1:clamp((now-story.started)/1.1,0,1)):0;
+    for(let y=8;y<23-open*15;y+=.55)art.box(ctx,56*TILE,y*TILE,4,8,"#aa8a64");
+  } else if(state.phase==="stationBoss" && runtime.boss && !bossExposed()&&!state.flags.lever){
     for(let y=11.8;y<16.1;y+=.55)art.box(ctx,56*TILE,y*TILE,4,8,"#aa8a64");
   }
 }
@@ -699,14 +796,42 @@ function drawProgress() {
     art.box(ctx,x-6,14*TILE+5,4,3,"#141d26");art.box(ctx,x+7,14*TILE+5,4,3,"#141d26");
   }
 }
+function drawStationFixtures(points) {
+  const panel = ([tx,ty], light) => {
+    const x=tx*TILE,y=ty*TILE;
+    art.box(ctx,x-7,y-15,14,19,"#17242d");
+    art.box(ctx,x-6,y-14,12,14,"#566567");
+    art.box(ctx,x-4,y-11,8,6,"#15252a");
+    art.box(ctx,x-3,y-10,6,3,light);
+    art.box(ctx,x-4,y-2,4,2,"#b8a978");
+  };
+  panel(points.wardMeter,state.phase==="hospital"||state.phase==="ward"?"#ebbd77":"#9ac492");
+  panel(points.fork,"#bc9971");
+  panel(points.northMarker,"#edce8e");
+  panel(points.southMarker,"#b7c4ad");
+  panel(points.lever,state.flags.lever?"#a6edb4":"#df9b6d");
+  const wired=state.flags.station||["audit","power","complete"].includes(state.phase);
+  panel(points.socket,wired?"#a6edb4":"#837567");
+  panel(points.power,wired?"#a6edb4":"#837567");
+  if(wired)art.glow(ctx,points.socket[0]*TILE,points.socket[1]*TILE-9,25,"#c6dd89");
+}
 function drawTargets(){
   const p=currentMap().points;
-  const stationPower=state.ch===1 && (state.phase==="complete" || state.flags.station);
   if(state.ch===1){
+    drawStationFixtures(p);
     art.person(ctx,p.hospital[0]*TILE,p.hospital[1]*TILE,art.looks.sister,0,-1);
-    art.person(ctx,p.acheng[0]*TILE,p.acheng[1]*TILE,art.looks.child,0,-1);
+    if(state.phase==="scout"||story?.id==="residents")
+      art.person(ctx,p.scout[0]*TILE,p.scout[1]*TILE,art.looks.engineer,0,-1);
+    if(story?.effect==="carrySeedling"){
+      const elapsed=now-story.started;
+      const step=reducedMotion.matches?1:clamp(elapsed/1.65,0,1);
+      const x=(p.acheng[0]+(p.seedlings[0]-p.acheng[0])*step)*TILE;
+      const y=(p.acheng[1]+(p.seedlings[1]-p.acheng[1])*step)*TILE;
+      art.person(ctx,x,y,art.looks.child,step<1?Math.floor(elapsed*9)%3-1:0,-1);
+      art.crate(ctx,x-7,y-2,1,.6);
+    } else art.person(ctx,p.acheng[0]*TILE,p.acheng[1]*TILE,art.looks.child,0,-1);
     for(let i=0;i<3;i++)art.crate(ctx,(60.55+i*.68)*TILE,19.3*TILE,1,.8);
-    if(stationPower)art.glow(ctx,61.8*TILE,17.7*TILE,47,state.allocation==="borrow"?"#bef78e":"#b6c084");
+    if(state.phase==="complete"&&state.allocation==="borrow")art.glow(ctx,61.8*TILE,19.2*TILE,39,"#bef78e");
     if(state.phase==="power"){art.glow(ctx,48.5*TILE,10.1*TILE,22,"#b6c781");art.glow(ctx,59.4*TILE,9*TILE,22,"#c8a36a");}
   } else {
     art.person(ctx,p.yehe[0]*TILE,p.yehe[1]*TILE,art.looks.grower,0,-1);
@@ -791,23 +916,44 @@ function drawMap(){
   art.box(mini,goal.x*sx-2,goal.y*sy-2,5,5,"#f7bf78");
   art.box(mini,state.x*sx-2,state.y*sy-2,5,5,"#a6edb4");
 }
+function drawStoryLighting(elapsed) {
+  const {focus, from} = story;
+  const moving = !reducedMotion.matches;
+  const x=focus.x*TILE,y=focus.y*TILE-8;
+  const glow=moving?40+7*Math.sin(elapsed*2):40;
+  if(from){
+    const startX=from.x*TILE,startY=from.y*TILE-8;
+    const charge=moving?clamp(elapsed/1.15,0,1):1;
+    const endX=startX+(x-startX)*charge,endY=startY+(y-startY)*charge;
+    art.pathLine(ctx,startX,startY,x,y,"#c2bc7d38",2);
+    art.pathLine(ctx,startX,startY,endX,endY,"#c6e49caa",2);
+    art.glow(ctx,endX,endY,18,"#d6f3a2");
+    art.box(ctx,endX-2,endY-2,4,4,"#e2f7bc");
+  }
+  art.glow(ctx,x,y,glow,"#dbde9e");
+}
 function render(dt) {
-  const target=cameraTarget();
-  runtime.cameraX+=(target.cameraX-runtime.cameraX)*Math.min(1,dt*8);
-  runtime.cameraY+=(target.cameraY-runtime.cameraY)*Math.min(1,dt*8);
+  const elapsed=story?now-story.started:0;
+  const scale=story&&!reducedMotion.matches?1.08+.18*clamp(elapsed/.9,0,1):1;
+  const target=cameraTarget(story?.focus,scale);
+  const follow=story&&reducedMotion.matches?1:Math.min(1,dt*(story?3.5:8));
+  runtime.cameraX+=(target.cameraX-runtime.cameraX)*follow;
+  runtime.cameraY+=(target.cameraY-runtime.cameraY)*follow;
+  runtime.cameraX=Math.min(runtime.cameraX,WIDTH*TILE-canvas.width/scale);
+  runtime.cameraY=Math.min(runtime.cameraY,HEIGHT*TILE-canvas.height/scale);
   const cx=Math.round(runtime.cameraX),cy=Math.round(runtime.cameraY);
   ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(backgrounds[state.ch-1],cx,cy,canvas.width,canvas.height,0,0,canvas.width,canvas.height);
-  ctx.save();ctx.translate(-cx,-cy);
+  ctx.drawImage(backgrounds[state.ch-1],cx,cy,canvas.width/scale,canvas.height/scale,0,0,canvas.width,canvas.height);
+  ctx.save();ctx.scale(scale,scale);ctx.translate(-cx,-cy);
   drawProgress();drawLamps();drawGate();drawTargets();drawHostiles();
-  if(state.flags.engineer||state.flags.tempEngineer)art.person(ctx,runtime.npcX*TILE,runtime.npcY*TILE,art.looks.engineer,runtime.walking?Math.floor(now*7)%2:0,runtime.flip);
+  if((state.flags.engineer||state.flags.tempEngineer)&&story?.id!=="residents")art.person(ctx,runtime.npcX*TILE,runtime.npcY*TILE,art.looks.engineer,runtime.walking?Math.floor(now*7)%2:0,runtime.flip);
+  if(story)drawStoryLighting(elapsed);
   art.glow(ctx,state.x*TILE,state.y*TILE,35,"#b7bb83");
   ctx.globalAlpha=runtime.invuln>0&&Math.floor(now*10)%2===0?.53:1;
   art.person(ctx,state.x*TILE,state.y*TILE,art.looks.player,runtime.walking?Math.floor(now*10)%3-1:0,runtime.flip);
   ctx.globalAlpha=1;
-  const items=interactables();
-  const active=nearest();
-  for(const p of items)if(distance(p,state)<15)markInteraction(p,active?.label===p.label&&active?.x===p.x&&active?.y===p.y);
+  const active=story?null:nearest();
+  if(!story)for(const p of interactables())if(distance(p,state)<15)markInteraction(p,active?.label===p.label&&active?.x===p.x&&active?.y===p.y);
   ctx.font='bold 9px ui-monospace, "PingFang SC", monospace';
   ctx.textAlign="center";
   for(const [x,y,name] of currentMap().labels) {
@@ -823,13 +969,17 @@ function render(dt) {
   const prompt=$("prompt");
   const label=active?.label||(state.held.length?"停放货物":"");
   if(prompt.lastElementChild.textContent!==label)prompt.lastElementChild.textContent=label;
-  prompt.hidden=!label||menu.open;
+  prompt.hidden=!label||menu.open||!!story;
   if(now>dialogueUntil)$("dialogue").hidden=true;
   drawMap();
 }
 function getGoal(){return (state.ch===1?CH1_GOALS:CH2_GOALS)[state.phase];}
 function goalPoint() {
   const goal=getGoal()[2];
+  if(state.ch===1){
+    if(state.phase==="routeSurvey"&&state.y>=16)return point("southMarker");
+    if(["transport","stationBoss"].includes(state.phase)&&state.drop&&!state.held.length)return state.drop;
+  }
   if(state.ch===2&&state.phase==="bridgeBoss"&&state.held.length===0)return point("reclaim");
   if(state.ch===2&&state.phase==="transport"&&!state.held.length&&available().length)return point("stock");
   return point(goal);
@@ -838,10 +988,12 @@ function syncHud() {
   const goal=getGoal();
   const target=goalPoint();
   if($("goal-title").textContent!==goal[0])$("goal-title").textContent=goal[0];
-  $("goal-text").textContent=state.ch===2&&state.phase==="bridgeBoss"&&state.held.length===0?"在桥头接应架取苗，再看预警挑路线。":goal[1];
+  $("goal-text").textContent=state.ch===1&&state.phase==="stationBoss"&&!state.held.length
+    ?"在接应位取回电池，再趁广播停顿去轨道东端接线。"
+    :state.ch===2&&state.phase==="bridgeBoss"&&state.held.length===0?"在桥头接应架取苗，再看预警挑路线。":goal[1];
   $("location").textContent=state.ch===1?(state.x<10?"平原 · 中心医院":state.x<19?"平原 · 配电站":state.x<45?"平原 · 站外街区":"平原 · 旧地铁站"):(state.x<19?"平原 · 驿站":state.x<45?"平原 · 洪沟":"平原 · 雨水高架");
   $("day").textContent=state.ch===1?"战后第十八年 · 夜":"战后第十八年 · 次日";
-  $("freight").textContent=state.ch===1?(state.held.length?"电池 ×1":state.phase==="power"||state.phase==="complete"?"已接入":"—"):(state.held.length?("在途 "+state.held.length+"/2"):(totalBoxes()+"/2"));
+  $("freight").textContent=state.ch===1?(state.held.length?"电池 ×1":state.drop?"电池已停放":["audit","power","complete"].includes(state.phase)?"已接入":"—"):(state.held.length?("在途 "+state.held.length+"/2"):(totalBoxes()+"/2"));
   $("gesture-note").textContent=state.held.length
     ?"拖动画面移动，点按近处标记交互，点自己放下货物。"
     :"拖动画面移动，拖远可冲刺。点按近处标记交互，长按打开小队。";
@@ -857,7 +1009,7 @@ function syncHud() {
   let alert="";
   if(runtime.countdown>0) alert="布防 "+Math.ceil(runtime.countdown)+" 秒 · 可通过控制柜提前开战";
   if(state.phase==="defenseWave")alert="第 "+runtime.wave+"/2 波 · 控制柜 "+runtime.cabinet+"/70"+(runtime.disabled>0?" · 设备受干扰":"");
-  if(runtime.boss)alert=(state.ch===1?"空站验票机":"断桥摊铺车")+" · "+(bossExposed()?(state.ch===1?"接线窗口":"通行窗口"):"注意作业预警");
+  if(runtime.boss)alert=(state.ch===1?"空站验票机":"断桥摊铺车")+" · "+(bossExposed()?(state.ch===1?"广播「无人」，可接线":"通行窗口"):"留意橙色警示带");
   $("screen-alert").textContent=alert;$("screen-alert").hidden=!alert;
   $("field-note").textContent=state.held.length
     ?(state.carry==="cart"?"推车可走高架。在便道入口可卸箱手提。":"手提货可过便道。交货前留意抢货机。")
@@ -873,6 +1025,10 @@ function pause(){
 }
 const movementKeys=["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","ShiftLeft","ShiftRight"];
 window.addEventListener("keydown",event=>{
+  if(story){
+    if(event.code==="KeyE"&&!event.repeat){event.preventDefault();$("story-next").click();}
+    return;
+  }
   if(event.code==="Escape"&&!menu.open){event.preventDefault();pause();return;}
   if(menu.open&&rally&&event.code==="KeyE"&&!event.repeat){
     event.preventDefault();
@@ -888,6 +1044,13 @@ window.addEventListener("keyup",event=>keys.delete(event.code));
 window.addEventListener("blur",clearControls);
 document.addEventListener("visibilitychange",()=>{if(document.hidden)clearControls();});
 menu.addEventListener("cancel",event=>{event.preventDefault();closeMenu();});
+storyDialog.addEventListener("cancel",event=>{event.preventDefault();endStory();});
+$("story-skip").addEventListener("click",endStory);
+$("story-next").addEventListener("click",()=>{
+  if(!story)return;
+  if(++story.index===story.scene.beats.length)endStory();
+  else showStoryBeat();
+});
 $("pause").addEventListener("click",pause);
 $("sound").addEventListener("click",async()=>{
   audioOn=!audioOn;
@@ -920,7 +1083,7 @@ function canvasTap(event){
   if(state.held.length&&distance(tap,{x:state.x,y:state.y-.5})<1)use(null);
 }
 canvas.addEventListener("pointerdown",event=>{
-  if(event.pointerType==="mouse"||menu.open||touchInput.pointer!==null||event.button!==0)return;
+  if(event.pointerType==="mouse"||menu.open||story||touchInput.pointer!==null||event.button!==0)return;
   event.preventDefault();
   touchInput.pointer=event.pointerId;
   touchInput.startX=event.clientX;
@@ -958,7 +1121,7 @@ for(const eventName of ["pointercancel","lostpointercapture"]){
 newRuntime();
 save("本地存档");
 syncHud();
-if(state.phase==="hospital")say("护士","巡线员，林岚在医院入口等你。",5);
+showOpening();
 const worldSize = new ResizeObserver(([entry]) => {
   const {width, height} = entry.contentRect;
   if (!width || !height) return;
@@ -969,6 +1132,7 @@ const worldSize = new ResizeObserver(([entry]) => {
   if (viewWidth === canvas.width && viewHeight === canvas.height) return;
   canvas.width = viewWidth;
   canvas.height = viewHeight;
+  ctx.imageSmoothingEnabled = false;
   releaseCanvasTouch();
   Object.assign(runtime, cameraTarget());
   render(0);
